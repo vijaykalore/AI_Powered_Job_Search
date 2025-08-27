@@ -190,20 +190,76 @@ apply_styling()
 @st.cache_resource
 def load_resources():
     """Load and cache all required resources."""
-    from utils.resume_parser import ResumeParser
-    from utils.serp_api_searcher import SerpApiSearcher
-    from utils.resume_keyword_extractor import ResumeKeywordExtractor
-    from agents.resume_agent import ResumeAgent
-    from agents.job_search_agent import JobSearchAgent
-    from agents.interview_agent import InterviewAgent
-    
-    resume_parser = ResumeParser()
-    resume_agent = ResumeAgent()
-    job_search_agent = JobSearchAgent()
-    interview_agent = InterviewAgent()
-    serp_api_searcher = SerpApiSearcher()
-    keyword_extractor = ResumeKeywordExtractor()
-    
+    # Heavy optional imports (langchain, faiss, tiktoken, crewai, spacy, etc.)
+    # may not be available on Streamlit's build environment. Import them
+    # lazily and fall back to no-op placeholders so the UI can load.
+    class _Missing:
+        def __init__(self, name):
+            self._name = name
+        def __getattr__(self, item):
+            raise ImportError(f"Optional dependency '{self._name}' is not installed. This feature is disabled.")
+
+    try:
+        from utils.resume_parser import ResumeParser
+    except Exception:
+        ResumeParser = lambda *a, **k: _Missing('ResumeParser')
+
+    try:
+        from utils.serp_api_searcher import SerpApiSearcher
+    except Exception:
+        SerpApiSearcher = lambda *a, **k: _Missing('SerpApiSearcher')
+
+    try:
+        from utils.resume_keyword_extractor import ResumeKeywordExtractor
+    except Exception:
+        ResumeKeywordExtractor = lambda *a, **k: _Missing('ResumeKeywordExtractor')
+
+    try:
+        from agents.resume_agent import ResumeAgent
+    except Exception:
+        ResumeAgent = lambda *a, **k: _Missing('ResumeAgent')
+
+    try:
+        from agents.job_search_agent import JobSearchAgent
+    except Exception:
+        JobSearchAgent = lambda *a, **k: _Missing('JobSearchAgent')
+
+    try:
+        from agents.interview_agent import InterviewAgent
+    except Exception:
+        InterviewAgent = lambda *a, **k: _Missing('InterviewAgent')
+
+    # Instantiate (or placeholder) resources
+    try:
+        resume_parser = ResumeParser()
+    except Exception:
+        resume_parser = ResumeParser
+
+    try:
+        resume_agent = ResumeAgent()
+    except Exception:
+        resume_agent = ResumeAgent
+
+    try:
+        job_search_agent = JobSearchAgent()
+    except Exception:
+        job_search_agent = JobSearchAgent
+
+    try:
+        interview_agent = InterviewAgent()
+    except Exception:
+        interview_agent = InterviewAgent
+
+    try:
+        serp_api_searcher = SerpApiSearcher()
+    except Exception:
+        serp_api_searcher = SerpApiSearcher
+
+    try:
+        keyword_extractor = ResumeKeywordExtractor()
+    except Exception:
+        keyword_extractor = ResumeKeywordExtractor
+
     return {
         "resume_parser": resume_parser,
         "resume_agent": resume_agent,
