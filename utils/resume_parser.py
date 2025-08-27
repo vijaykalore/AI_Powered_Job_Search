@@ -4,13 +4,12 @@ import spacy
 import os
 import tempfile
 import re
-from langchain.document_loaders import PyPDFLoader
-from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains import RetrievalQA
-from langchain.llms import OpenAI
 from config import OPENAI_API_KEY
+
+# NOTE: langchain imports that pull compiled/vector libraries (FAISS, etc.)
+# are deferred and imported lazily inside methods that need them. This
+# prevents import-time failures on builders that can't compile native
+# extensions (for example, Streamlit Cloud without SWIG/Rust compilers).
 
 # Load spaCy model
 try:
@@ -26,12 +25,17 @@ class ResumeParser:
         """Initialize the parser with OpenAI components for RAG if API key is provided."""
         self.use_rag = False
         if OPENAI_API_KEY:
+            # Try to import langchain OpenAI integrations lazily. If the
+            # environment doesn't have the optional packages, don't enable RAG.
             try:
+                from langchain.embeddings import OpenAIEmbeddings
+                from langchain.llms import OpenAI
+
                 self.embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
                 self.llm = OpenAI(api_key=OPENAI_API_KEY)
                 self.use_rag = True
             except Exception as e:
-                print(f"Error initializing OpenAI components: {e}")
+                print(f"OpenAI/langchain components unavailable, disabling RAG: {e}")
                 self.use_rag = False
     
     def save_uploaded_file(self, uploaded_file):
@@ -224,54 +228,68 @@ class ResumeParser:
         
         # If using RAG, enhance the extraction with contextual understanding
         if self.use_rag:
+            # Perform RAG-based enhancement inside a guarded block and import
+            # langchain components lazily so missing native deps (like faiss)
+            # don't break module import.
             try:
-                # Create embeddings from the resume text
+                from langchain.text_splitter import RecursiveCharacterTextSplitter
+
                 text_splitter = RecursiveCharacterTextSplitter(
                     chunk_size=1000,
                     chunk_overlap=200
                 )
                 texts = text_splitter.split_text(text)
-                
-                # Create the vectorstore
-                vectorstore = FAISS.from_texts(texts, self.embeddings)
-                
-                # Create the retrieval chain
-                retriever = vectorstore.as_retriever()
-                qa_chain = RetrievalQA.from_chain_type(
-                    llm=self.llm,
-                    chain_type="stuff",
-                    retriever=retriever
-                )
-                
-                # Extract skills using RAG
-                rag_skills_response = qa_chain.run("What are all the technical skills, programming languages, and tools mentioned in this resume? List only the names of the skills without explanations.")
-                if rag_skills_response:
-                    # Process the response, assuming it's a list or comma-separated skills
-                    rag_skills = [s.strip() for s in re.split(r'[,\n•-]', rag_skills_response) if s.strip()]
-                    for skill in rag_skills:
-                        if skill and len(skill) < 50:  # Avoid adding long text chunks as skills
-                            extracted_skills.add(skill)
-                
-                # Extract education using RAG
-                rag_education_response = qa_chain.run("Extract all education details including institutions, degrees, majors, and graduation dates from this resume.")
-                if rag_education_response:
-                    # Process the education information
-                    rag_education = [e.strip() for e in rag_education_response.split('\n') if e.strip()]
-                    for edu in rag_education:
-                        if edu and not any(edu in existing_edu for existing_edu in education):
-                            education.append(edu)
-                
-                # Extract work experience using RAG
-                rag_experience_response = qa_chain.run("Extract all work experience details including company names, job titles, dates, and key responsibilities from this resume.")
-                if rag_experience_response:
-                    # Process the experience information
-                    rag_experience = [e.strip() for e in rag_experience_response.split('\n') if e.strip()]
-                    for exp in rag_experience:
-                        if exp and len(exp) > 20 and not any(exp in existing_exp for existing_exp in experience):
-                            experience.append(exp)
-                
+
+                # Attempt to import FAISS-based vectorstore and RetrievalQA. If
+                # faiss or other native libs are missing, skip RAG gracefully.
+                try:
+                    from langchain.vectorstores import FAISS
+                    from langchain.chains import RetrievalQA
+
+                    vectorstore = FAISS.from_texts(texts, self.embeddings)
+                    retriever = vectorstore.as_retriever()
+                    qa_chain = RetrievalQA.from_chain_type(
+                        llm=self.llm,
+                        chain_type="stuff",
+                        retriever=retriever
+                    )
+
+                    # Extract skills using RAG
+                    rag_skills_response = qa_chain.run(
+                        "What are all the technical skills, programming languages, and tools mentioned in this resume? List only the names of the skills without explanations."
+                    )
+                    if rag_skills_response:
+                        rag_skills = [s.strip() for s in re.split(r'[,\n•-]', rag_skills_response) if s.strip()]
+                        for skill in rag_skills:
+                            if skill and len(skill) < 50:
+                                extracted_skills.add(skill)
+
+                    # Extract education using RAG
+                    rag_education_response = qa_chain.run(
+                        "Extract all education details including institutions, degrees, majors, and graduation dates from this resume."
+                    )
+                    if rag_education_response:
+                        rag_education = [e.strip() for e in rag_education_response.split('\n') if e.strip()]
+                        for edu in rag_education:
+                            if edu and not any(edu in existing_edu for existing_edu in education):
+                                education.append(edu)
+
+                    # Extract work experience using RAG
+                    rag_experience_response = qa_chain.run(
+                        "Extract all work experience details including company names, job titles, dates, and key responsibilities from this resume."
+                    )
+                    if rag_experience_response:
+                        rag_experience = [e.strip() for e in rag_experience_response.split('\n') if e.strip()]
+                        for exp in rag_experience:
+                            if exp and len(exp) > 20 and not any(exp in existing_exp for existing_exp in experience):
+                                experience.append(exp)
+
+                except Exception as e:
+                    # FAISS or other native vectorstore backend not available.
+                    print(f"RAG skipped: vectorstore/backend unavailable: {e}")
+
             except Exception as e:
-                print(f"RAG extraction error: {e}")
+                print(f"RAG extraction error (text_splitter/etc.): {e}")
         
         return {
             "raw_text": text,

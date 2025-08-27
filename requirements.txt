@@ -1,16 +1,15 @@
 streamlit==1.32.0
 python-dotenv==1.0.0
-langchain>=0.1.10,<0.2.0
 openai>=1.13.3,<2.0.0
-spacy==3.7.2
 pandas==2.1.4
 requests==2.31.0
 beautifulsoup4==4.12.2
 PyPDF2==3.0.1
 python-docx==0.8.11
- # crewai removed to avoid build-time tiktoken/rust issues; add back only if you have prebuilt wheels
- # crewai==0.28.0
- # faiss-cpu removed because it often fails to install on cloud builders; add it back manually if needed
- 
- # Optional: install spaCy model after install
- # python -m spacy download en_core_web_lg
+
+# Notes:
+# - langchain and FAISS were removed to avoid installation of compiled
+#   native extensions on Streamlit Cloud. Re-add them only if you deploy
+#   with Docker or on an environment that provides system build tools.
+# - spaCy model downloads may be required locally; install models with:
+#   python -m spacy download en_core_web_lg
