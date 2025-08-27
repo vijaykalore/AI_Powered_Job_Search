@@ -4,7 +4,6 @@ import streamlit as st
 
 
 # ...existing code...
-import pandas as pd
 import os
 import json
 import tempfile
