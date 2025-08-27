@@ -2,7 +2,9 @@ streamlit==1.32.0
 python-dotenv==1.0.0
 langchain>=0.1.10,<0.2.0
 openai>=1.13.3,<2.0.0
-crewai==0.28.0
+# removed crewai (pulled tiktoken and other build-time deps causing Streamlit Cloud installs to fail)
+# If you need Crewai features, install it manually or pin a compatible version that provides prebuilt wheels.
+# crewai==0.28.0
 spacy==3.7.2
 pandas==2.1.4
 requests==2.31.0
