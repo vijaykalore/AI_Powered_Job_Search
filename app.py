@@ -289,17 +289,35 @@ border-radius: 12px; margin-bottom: 2rem; box-shadow: 0 4px 12px rgba(0,0,0,0.1)
 </div>
 """, unsafe_allow_html=True)
 
-# Session state initialization
-if "resume_data" not in st.session_state:
-    st.session_state.resume_data = {}
-if "job_results" not in st.session_state:
-    st.session_state.job_results = []
-if "selected_job" not in st.session_state:
-    st.session_state.selected_job = None
-if "interview_questions" not in st.session_state:
-    st.session_state.interview_questions = None
-if "saved_jobs" not in st.session_state:
-    st.session_state.saved_jobs = load_saved_jobs()
+# Session state helpers and initialization
+def _get_state(key, default=None):
+    """Safe getter for st.session_state that works even when imported outside `streamlit run`."""
+    try:
+        return st.session_state.get(key, default)
+    except Exception:
+        # When importing the module (not running streamlit), session_state
+        # may not behave like a dict; return default instead of raising.
+        return default
+
+def _set_state(key, value):
+    """Safe setter for st.session_state."""
+    try:
+        st.session_state[key] = value
+    except Exception:
+        # No-op when session_state can't be written to (e.g., outside streamlit)
+        pass
+
+# Initialize commonly used session keys with safe helpers
+if _get_state("resume_data") is None:
+    _set_state("resume_data", {})
+if _get_state("job_results") is None:
+    _set_state("job_results", [])
+if _get_state("selected_job") is None:
+    _set_state("selected_job", None)
+if _get_state("interview_questions") is None:
+    _set_state("interview_questions", None)
+if _get_state("saved_jobs") is None:
+    _set_state("saved_jobs", load_saved_jobs())
 
 # Create main navigation tabs
 tabs = st.tabs([
@@ -383,10 +401,16 @@ with tabs[0]:
                             resume_agent = resources["resume_agent"]
                             resume_analysis = resume_agent.analyze_resume(resume_data)
                             
-                            # Store resume data and analysis in session state
-                            st.session_state.resume_data = resume_data
-                            st.session_state.resume_data["analysis"] = resume_analysis
-                            st.session_state.resume_data["raw_text"] = extracted_text
+                            # Store resume data and analysis in session state (safe)
+                            _set_state("resume_data", resume_data)
+                            # Ensure analysis and raw_text are part of the stored data
+                            rd = _get_state("resume_data") or {}
+                            try:
+                                rd["analysis"] = resume_analysis
+                                rd["raw_text"] = extracted_text
+                                _set_state("resume_data", rd)
+                            except Exception:
+                                pass
                             
                             st.success("Resume analysis complete! Review the extracted information and analysis below.")
                         else:
@@ -430,7 +454,7 @@ with tabs[0]:
         """, unsafe_allow_html=True)
     
     # Display resume analysis results if available
-    if "resume_data" in st.session_state and st.session_state.resume_data:
+    if _get_state("resume_data"):
         st.markdown("---")
         
         # Create tabs for different views of resume data
@@ -438,23 +462,24 @@ with tabs[0]:
         
         # Tab 1: Summary view
         with resume_tabs[0]:
-            display_resume_analysis_summary(st.session_state.resume_data)
+            display_resume_analysis_summary(_get_state("resume_data") or {})
         
         # Tab 2: Skills & Experience
         with resume_tabs[1]:
-            display_extracted_information(st.session_state.resume_data)
+            display_extracted_information(_get_state("resume_data") or {})
         
         # Tab 3: Analysis
         with resume_tabs[2]:
-            if "analysis" in st.session_state.resume_data:
-                display_formatted_analysis(st.session_state.resume_data["analysis"])
+            resume_data_local = _get_state("resume_data") or {}
+            if "analysis" in resume_data_local:
+                display_formatted_analysis(resume_data_local["analysis"])
             else:
                 st.info("No detailed analysis available. Please re-upload your resume to generate an analysis.")
         
         # Tab 4: Raw Text
         with resume_tabs[3]:
-            if "raw_text" in st.session_state.resume_data:
-                st.text_area("Extracted Text", st.session_state.resume_data["raw_text"], height=400, disabled=True)
+            if "raw_text" in resume_data_local:
+                st.text_area("Extracted Text", resume_data_local["raw_text"], height=400, disabled=True)
             else:
                 st.info("Raw text not available.")
         
@@ -511,7 +536,7 @@ with tabs[1]:
     
     # Resume-Based Search Tab
     with search_tabs[0]:
-        if st.session_state.resume_data:
+        if _get_state("resume_data"):
             st.subheader("Find Jobs Matching Your Resume")
             st.markdown(f"""
             <div style="background-color: {COLORS["panel_bg"]}; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
@@ -520,7 +545,7 @@ with tabs[1]:
             """, unsafe_allow_html=True)
             
             # Extract skills preview from resume
-            skills_preview = ", ".join(st.session_state.resume_data.get("skills", [])[:5])
+            skills_preview = ", ".join((_get_state("resume_data") or {}).get("skills", [])[:5])
             if skills_preview:
                 st.markdown(f"""
                 <div style="background-color: {COLORS["secondary"]}; color: white; 
@@ -552,10 +577,11 @@ with tabs[1]:
                     try:
                         # Use the keyword extractor
                         keyword_extractor = resources["keyword_extractor"]
-                        search_keywords = keyword_extractor.extract_keywords(st.session_state.resume_data)
+                        resume_local = _get_state("resume_data") or {}
+                        search_keywords = keyword_extractor.extract_keywords(resume_local)
                         
                         # Get potential job title
-                        job_title = keyword_extractor.extract_job_title(st.session_state.resume_data)
+                        job_title = keyword_extractor.extract_job_title(resume_local)
                         
                         # Join with spaces
                         resume_based_query = " ".join(search_keywords)
@@ -695,7 +721,7 @@ with tabs[1]:
             }
             days_ago = recency_days.get(recency, 7)
             
-            if not st.session_state.resume_data:
+            if not _get_state("resume_data"):
                 st.warning("Please upload and analyze your resume first for better job matching.")
             
             search_message = f"Searching for {search_query} jobs in {location}"
@@ -727,7 +753,7 @@ with tabs[1]:
                         job_search_agent = resources["job_search_agent"]
                         try:
                             jobs = job_search_agent.search_jobs(
-                                st.session_state.resume_data,
+                                _get_state("resume_data"),
                                 search_query,
                                 location,
                                 platforms=selected_platforms,
@@ -740,7 +766,7 @@ with tabs[1]:
                     job_search_agent = resources["job_search_agent"]
                     try:
                         jobs = job_search_agent.search_jobs(
-                            st.session_state.resume_data,
+                            _get_state("resume_data"),
                             search_query,
                             location,
                             platforms=selected_platforms,
@@ -814,8 +840,10 @@ with tabs[1]:
         if not sorted_jobs:
             st.warning(f"No jobs found for the selected platform: {filter_platform}")
         else:
-            # Create a dataframe for easier display
-            job_df = pd.DataFrame([
+            # Create a dataframe for easier display (pandas optional)
+            try:
+                import pandas as pd
+                job_df = pd.DataFrame([
                 {
                     "Title": job["title"],
                     "Company": job["company"],
@@ -826,18 +854,30 @@ with tabs[1]:
                     "Real Job": "✓" if job.get("is_real_job", False) else "?"
                 }
                 for job in sorted_jobs
-            ])
-            
-            # Display jobs in a dataframe with improved styling
-            st.dataframe(
-                job_df,
-                use_container_width=True,
-                column_config={
-                    "Title": st.column_config.TextColumn("Job Title"),
-                    "Real Job": st.column_config.TextColumn("Verified")
-                },
-                hide_index=True
-            )
+                ])
+                # Display jobs in a dataframe with improved styling (if pandas available)
+                if 'job_df' in locals():
+                    st.dataframe(
+                        job_df,
+                        use_container_width=True,
+                        column_config={
+                            "Title": st.column_config.TextColumn("Job Title"),
+                            "Real Job": st.column_config.TextColumn("Verified")
+                        },
+                        hide_index=True
+                    )
+            except Exception:
+                # pandas not available; fall back to a simple table
+                st.table([
+                    {
+                        "Job Title": job.get("title", ""),
+                        "Company": job.get("company", ""),
+                        "Location": job.get("location", "Not specified"),
+                        "Platform": job.get("platform", "Unknown"),
+                        "Posted": job.get("date_posted", "Recent")
+                    }
+                    for job in sorted_jobs
+                ])
             
             # Job selection for detailed view
             if sorted_jobs:
@@ -919,11 +959,11 @@ with tabs[1]:
                         st.warning("No job description available.")
                     
                     # Job match analysis if resume is available
-                    if st.session_state.resume_data:
+                    if _get_state("resume_data"):
                         with st.expander("Resume Match Analysis", expanded=True):
                             with st.spinner("Analyzing match between your resume and job..."):
                                 # Display skills match
-                                skills = st.session_state.resume_data.get("skills", [])
+                                skills = _get_state("resume_data").get("skills", [])
                                 job_description = selected_job.get('description', '')
                                 
                                 if skills and job_description:
@@ -932,7 +972,7 @@ with tabs[1]:
                                     # Get detailed match analysis
                                     job_search_agent = resources["job_search_agent"]
                                     match_analysis = job_search_agent.get_job_match_analysis(
-                                        st.session_state.resume_data,
+                                        _get_state("resume_data"),
                                         selected_job
                                     )
                                     
@@ -1111,11 +1151,11 @@ with tabs[2]:
         
         with col2:
             # Resume analysis tips
-            if st.session_state.resume_data:
+            if _get_state("resume_data"):
                 st.subheader("Your Top Skills")
                 
                 # Get skills and experience
-                skills = st.session_state.resume_data.get("skills", [])
+                skills = _get_state("resume_data").get("skills", [])
                 
                 # Display skills that match the job
                 if skills and selected_job.get("description"):
@@ -1216,7 +1256,7 @@ with tabs[2]:
                     job_description = selected_job.get('description', '')
                     
                     # Get resume data if available
-                    resume_data = st.session_state.resume_data
+                    resume_data = _get_state("resume_data")
                     
                     # Create a more detailed prompt based on the interview type and focus areas
                     prompt_additions = f"Interview Type: {interview_type}\nDifficulty Level: {difficulty}\n"
@@ -1561,10 +1601,11 @@ with tabs[2]:
 with tabs[3]:
     st.header("Saved Jobs")
     
-    # Refresh saved jobs list
-    st.session_state.saved_jobs = load_saved_jobs()
+    # Refresh saved jobs list (safe)
+    _set_state("saved_jobs", load_saved_jobs())
+    saved_jobs_local = _get_state("saved_jobs") or []
     
-    if not st.session_state.saved_jobs:
+    if not saved_jobs_local:
         st.info("You haven't saved any jobs yet. Use the Job Search tab to find and save jobs.")
     else:
         # Display count of saved jobs
@@ -1575,28 +1616,43 @@ with tabs[3]:
         </div>
         """, unsafe_allow_html=True)
         
-        # Create a dataframe for saved jobs
-        saved_jobs_df = pd.DataFrame([
-            {
-                "Title": job["title"],
-                "Company": job["company"],
-                "Location": job.get("location", "Not specified"),
-                "Platform": job.get("platform", "Unknown"),
-                "Date Saved": job.get("date_saved", "Recent")
-            }
-            for job in st.session_state.saved_jobs
-        ])
+        # Create a dataframe for saved jobs (pandas optional)
+        try:
+            import pandas as pd
+            saved_jobs_df = pd.DataFrame([
+                {
+                    "Title": job["title"],
+                    "Company": job["company"],
+                    "Location": job.get("location", "Not specified"),
+                    "Platform": job.get("platform", "Unknown"),
+                    "Date Saved": job.get("date_saved", "Recent")
+                }
+                for job in saved_jobs_local
+            ])
+            st.dataframe(saved_jobs_df, use_container_width=True, hide_index=True)
+        except Exception:
+            st.table([
+                {
+                    "Title": job.get("title", ""),
+                    "Company": job.get("company", ""),
+                    "Location": job.get("location", "Not specified"),
+                    "Platform": job.get("platform", "Unknown"),
+                    "Date Saved": job.get("date_saved", "Recent")
+                }
+                for job in saved_jobs_local
+            ])
         
-        # Display saved jobs in a dataframe with improved styling
-        st.dataframe(
-            saved_jobs_df,
-            use_container_width=True,
-            column_config={
-                "Title": st.column_config.TextColumn("Job Title"),
-                "Date Saved": st.column_config.TextColumn("Saved On")
-            },
-            hide_index=True
-        )
+        # Display saved jobs in a dataframe with improved styling (if pandas available)
+        if 'saved_jobs_df' in locals():
+            st.dataframe(
+                saved_jobs_df,
+                use_container_width=True,
+                column_config={
+                    "Title": st.column_config.TextColumn("Job Title"),
+                    "Date Saved": st.column_config.TextColumn("Saved On")
+                },
+                hide_index=True
+            )
         
         # Allow selection of a saved job for detailed view
         if st.session_state.saved_jobs:
