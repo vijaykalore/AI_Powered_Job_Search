@@ -56,4 +56,3 @@ A polished Streamlit app to analyze resumes, discover matching roles, and help y
 - GitHub: https://github.com/vijaykalore/AI_Powered_Job_Search
 - Live demo: https://vijaykalore-ai-powered-job-search-app-oujbcb.streamlit.app/
 
-If you'd like, I can add screenshots or a short GIF walkthrough to this README, or create a Dockerfile and step-by-step deploy instructions for a production-ready build.
